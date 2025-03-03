@@ -6,6 +6,7 @@ import matplotlib.patheffects as pe
 import os
 import requests
 import re
+import base64
 
 # Set page configuration for wide layout
 st.set_page_config(page_title="Sprint Performance Dashboard", layout="wide")
@@ -82,7 +83,6 @@ def convert_google_drive_url(url):
 # Function to load image from URL
 def load_image_from_url(url):
     try:
-        # Handle Google Drive URLs
         download_url = convert_google_drive_url(url)
         headers = {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
@@ -104,14 +104,16 @@ if df is not None:
     df['Result'] = pd.to_numeric(df['Result'], errors='coerce')
     df = df.dropna(subset=['Result'])
 
+    # Calculate Percentrank for each result within each test
+    df['Percentrank'] = df.groupby('Test')['Result'].rank(method='min', ascending=True, pct=True) * 100  # Lower result = higher rank, in %
+
     # Add filter for athlete name at the top
     athlete_names = df['Name'].unique().tolist()
     selected_athlete = st.selectbox("Select an Athlete", options=athlete_names)
 
-    # Display athlete image from Sheet2
+    # Display athlete image from Sheet2 with custom size
     image_url = None
     if df_images is not None and 'Name' in df_images.columns and 'Image' in df_images.columns:
-        # Find matching row in Sheet2
         matching_row = df_images[df_images['Name'] == selected_athlete]
         if not matching_row.empty:
             image_url = matching_row['Image'].iloc[0] if not pd.isna(matching_row['Image'].iloc[0]) else None
@@ -119,7 +121,16 @@ if df is not None:
     if image_url:
         img = load_image_from_url(image_url)
         if img:
-            st.image(img, width=100, caption=f"{selected_athlete}")
+            base64_img = base64.b64encode(img).decode('utf-8')
+            st.markdown(
+                f"""
+                <div style="text-align: center;">
+                    <img src="data:image/png;base64,{base64_img}" width="300" height="450" alt="{selected_athlete}">
+                    <p>{selected_athlete}</p>
+                </div>
+                """,
+                unsafe_allow_html=True
+            )
         else:
             st.markdown(f'<span style="color:red; font-size:24px;">✗</span> No valid image for {selected_athlete}', unsafe_allow_html=True)
     else:
@@ -131,8 +142,8 @@ if df is not None:
 
     if not df_selected.empty:
         # Calculate PRabs: Average Percentrank per athlete across all tests
-        df_prabs = df.groupby('Name')['Average_Percentrank'].mean().reset_index()
-        df_prabs = df_prabs.rename(columns={'Average_Percentrank': 'PRabs'})
+        df_prabs = df.groupby('Name')['Percentrank'].mean().reset_index()
+        df_prabs = df_prabs.rename(columns={'Percentrank': 'PRabs'})
 
         # Sort by PRabs and assign ranks
         df_prabs_sorted = df_prabs.sort_values('PRabs', ascending=False).reset_index(drop=True)
@@ -144,11 +155,11 @@ if df is not None:
         selected_rank = df_prabs_sorted[df_prabs_sorted['Name'] == selected_athlete]['Rank'].iloc[0]
         rank_display = f"{selected_rank}/{total_athletes}"
 
-        # New KPI: Best result based on highest PR value
-        best_pr_row = df_selected.loc[df_selected['Average_Percentrank'].idxmax()]
+        # Best result based on highest calculated Percentrank
+        best_pr_row = df_selected.loc[df_selected['Percentrank'].idxmax()]
         best_pr_result = best_pr_row['Result']
         best_pr_test = best_pr_row['Test']
-        best_pr_value = best_pr_row['Average_Percentrank']
+        best_pr_value = best_pr_row['Percentrank']
 
         # Display modified KPIs at the top
         st.subheader("Key Performance Indicators")
@@ -158,13 +169,21 @@ if df is not None:
                       delta=rank_display, 
                       delta_color="off", 
                       label_visibility="visible", 
-                      help="Selected athlete's absolute Percentrank and rank (e.g., 3/15 means 3rd highest out of 15)")
+                      help="Selected athlete's average Percentrank across all tests (higher is better)")
         with col2:
-            st.metric(f"Best Result by PR ({selected_athlete})", f"{best_pr_result:.2f}s", 
-                      delta=f"{best_pr_test} (PR: {best_pr_value:.1f})", 
-                      delta_color="off", 
-                      label_visibility="visible", 
-                      help="Selected athlete's result with the highest Percentrank value across all tests")
+            # Check if PR is 100 and add golden trophy
+            if best_pr_value == 100:
+                st.metric(f"Best Result by PR ({selected_athlete})", f"{best_pr_result:.2f}s 🏆", 
+                          delta=f"{best_pr_test} (PR: {best_pr_value:.1f})", 
+                          delta_color="off", 
+                          label_visibility="visible", 
+                          help="Selected athlete's result with the highest Percentrank (🏆 indicates top performance)")
+            else:
+                st.metric(f"Best Result by PR ({selected_athlete})", f"{best_pr_result:.2f}s", 
+                          delta=f"{best_pr_test} (PR: {best_pr_value:.1f})", 
+                          delta_color="off", 
+                          label_visibility="visible", 
+                          help="Selected athlete's result with the highest Percentrank")
 
         # New KPI: Best Result (lowest time) comparison with test filter
         st.subheader("Best Performance Comparison (Lower is Better)")
