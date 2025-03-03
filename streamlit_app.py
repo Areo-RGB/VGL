@@ -6,7 +6,7 @@ import os
 # Set page title and description
 st.set_page_config(page_title="Sprint Analysis", layout="wide")
 st.title("Sprint Performance Dashboard")
-st.write("Visualization of athlete performance based on Average Percentrank")
+st.write("Visualization of athlete performance based on Average Percentrank and individual tests")
 
 # Function to load data from CSV
 def load_data():
@@ -65,8 +65,8 @@ if df is not None:
 
     st.pyplot(fig)
 
-    # Display statistics
-    st.subheader("Performance Statistics")
+    # Display statistics for Average Percentrank
+    st.subheader("Performance Statistics (Average Percentrank)")
     col1, col2, col3 = st.columns(3)
 
     with col1:
@@ -86,6 +86,78 @@ if df is not None:
             df_athletes_sorted['Average_Percentrank'] == bottom_rank, 'Name'
         ].values[0]
         st.metric("Bottom Rank", f"{bottom_rank:.1f}", f"by {bottom_athlete}")
+
+    # Get unique test types
+    test_types = df['Test'].unique()
+
+    # Create charts for each test type
+    st.subheader("Individual Test Performance")
+    
+    for test in test_types:
+        # Filter data for current test
+        df_test = df[df['Test'] == test].copy()
+        df_test['Result'] = pd.to_numeric(df_test['Result'], errors='coerce')
+        df_test = df_test.dropna(subset=['Result'])
+        
+        # Sort by Result (ascending, as lower times are better)
+        df_test_sorted = df_test.sort_values('Result', ascending=True)
+
+        if not df_test_sorted.empty:
+            st.markdown(f"### {test} Results")
+            
+            fig_test, ax_test = plt.figure(figsize=(10, 6)), plt.axes()
+            bars_test = ax_test.barh(df_test_sorted['Name'], 
+                                  df_test_sorted['Result'], 
+                                  color='lightgreen')
+            
+            ax_test.set_xlabel('Time (seconds)')
+            ax_test.set_title(f'{test} Performance')
+            ax_test.invert_yaxis()  # Fastest time at the top
+
+            # Add time labels to the end of each bar
+            for bar in bars_test:
+                width = bar.get_width()
+                ax_test.text(width + 0.02, 
+                            bar.get_y() + bar.get_height()/2,
+                            f'{width:.2f}s',
+                            va='center')
+
+            # Highlight the best performer
+            if not df_test_sorted.empty:
+                best_time = df_test_sorted['Result'].min()
+                best_athlete = df_test_sorted.loc[
+                    df_test_sorted['Result'] == best_time, 'Name'
+                ].values[0]
+                
+                athlete_names = df_test_sorted['Name'].tolist()
+                try:
+                    bar_idx = athlete_names.index(best_athlete)
+                    bars_test[bar_idx].set_color('gold')
+                except ValueError:
+                    st.warning(f"Could not highlight best performer for {test}")
+
+            st.pyplot(fig_test)
+
+            # Display statistics for this test
+            col1, col2, col3 = st.columns(3)
+
+            with col1:
+                best_time = df_test_sorted['Result'].min()
+                best_athlete = df_test_sorted.loc[
+                    df_test_sorted['Result'] == best_time, 'Name'
+                ].values[0]
+                st.metric("Best Time", f"{best_time:.2f}s", f"by {best_athlete}")
+
+            with col2:
+                avg_time = df_test_sorted['Result'].mean()
+                st.metric("Average Time", f"{avg_time:.2f}s")
+
+            with col3:
+                worst_time = df_test_sorted['Result'].max()
+                worst_athlete = df_test_sorted.loc[
+                    df_test_sorted['Result'] == worst_time, 'Name'
+                ].values[0]
+                st.metric("Worst Time", f"{worst_time:.2f}s", f"by {worst_athlete}")
 
     # Add sidebar filters
     st.sidebar.header("Filters")
