@@ -4,6 +4,8 @@ import matplotlib.pyplot as plt
 from matplotlib.colors import LinearSegmentedColormap
 import matplotlib.patheffects as pe
 import os
+import requests
+import re
 
 # Set page configuration for wide layout
 st.set_page_config(page_title="Sprint Performance Dashboard", layout="wide")
@@ -23,7 +25,7 @@ st.markdown(
     unsafe_allow_html=True
 )
 
-# Function to load data from Google Sheets
+# Function to load data from Google Sheets (Sheet1 for main data)
 def load_data_from_sheets():
     try:
         SHEET_ID = '1fjqPnrhIRGeYNxkRmWn4igb81SJ_gxfLCSVb3KZyju4'
@@ -32,11 +34,24 @@ def load_data_from_sheets():
         df = pd.read_csv(url)
         return df
     except Exception as e:
-        st.warning(f"Failed to load from Google Sheets: {str(e)}")
+        st.warning(f"Failed to load from Google Sheets (Sheet1): {str(e)}")
         st.warning("Falling back to local CSV file...")
         return None
 
-# Function to load data from CSV
+# Function to load image data from Sheet2
+def load_image_data_from_sheets():
+    try:
+        SHEET_ID = '1fjqPnrhIRGeYNxkRmWn4igb81SJ_gxfLCSVb3KZyju4'
+        SHEET_NAME = 'Sheet2'
+        url = f'https://docs.google.com/spreadsheets/d/{SHEET_ID}/gviz/tq?tqx=out:csv&sheet={SHEET_NAME}'
+        df_images = pd.read_csv(url)
+        st.write("Sheet2 Data Loaded:", df_images)  # Debug: Show Sheet2 content
+        return df_images
+    except Exception as e:
+        st.warning(f"Failed to load image data from Sheet2: {str(e)}")
+        return None
+
+# Function to load data from CSV (fallback for Sheet1)
 def load_data_from_csv():
     try:
         csv_path = "sprint_data.csv"
@@ -57,8 +72,36 @@ def load_data():
         df = load_data_from_csv()
     return df
 
-# Load data
+# Function to convert Google Drive URL to direct download URL
+def convert_google_drive_url(url):
+    match = re.search(r'/file/d/([a-zA-Z0-9_-]+)', url)
+    if match:
+        file_id = match.group(1)
+        return f"https://drive.google.com/uc?export=download&id={file_id}"
+    return url  # Return original URL if not a Google Drive link
+
+# Function to load image from URL
+def load_image_from_url(url):
+    try:
+        # Handle Google Drive URLs
+        download_url = convert_google_drive_url(url)
+        st.write(f"Attempting to load image from URL: {download_url}")  # Debug: Log URL
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
+        }
+        response = requests.get(download_url, headers=headers, timeout=10)
+        response.raise_for_status()
+        st.write(f"Image status code: {response.status_code}")  # Debug: Show HTTP status
+        return response.content  # Return raw bytes
+    except Exception as e:
+        st.write(f"Failed to load image: {str(e)}")  # Debug: Show error
+        return None
+
+# Load main data (Sheet1 or CSV)
 df = load_data()
+
+# Load image data (Sheet2)
+df_images = load_image_data_from_sheets()
 
 if df is not None:
     # Prepare data
@@ -69,6 +112,24 @@ if df is not None:
     athlete_names = df['Name'].unique().tolist()
     selected_athlete = st.selectbox("Select an Athlete", options=athlete_names)
 
+    # Display athlete image from Sheet2
+    image_url = None
+    if df_images is not None and 'Name' in df_images.columns and 'Image' in df_images.columns:
+        # Find matching row in Sheet2
+        matching_row = df_images[df_images['Name'] == selected_athlete]
+        if not matching_row.empty:
+            image_url = matching_row['Image'].iloc[0] if not pd.isna(matching_row['Image'].iloc[0]) else None
+            st.write(f"Found image URL for {selected_athlete}: {image_url}")  # Debug: Show URL
+
+    if image_url:
+        img = load_image_from_url(image_url)
+        if img:
+            st.image(img, width=100, caption=f"{selected_athlete}")
+        else:
+            st.markdown(f'<span style="color:red; font-size:24px;">✗</span> No valid image for {selected_athlete}', unsafe_allow_html=True)
+    else:
+        st.markdown(f'<span style="color:red; font-size:24px;">✗</span> No image URL for {selected_athlete}', unsafe_allow_html=True)
+
     # Filter data for the selected athlete
     df_selected = df[df['Name'] == selected_athlete].copy()
     df_others = df[df['Name'] != selected_athlete].copy()
@@ -78,24 +139,37 @@ if df is not None:
         df_prabs = df.groupby('Name')['Average_Percentrank'].mean().reset_index()
         df_prabs = df_prabs.rename(columns={'Average_Percentrank': 'PRabs'})
 
-        # Overall PRabs (mean of all athletes' PRabs)
-        overall_prabs = df_prabs['PRabs'].mean()
-        # Selected athlete's PRabs
+        # Sort by PRabs and assign ranks
+        df_prabs_sorted = df_prabs.sort_values('PRabs', ascending=False).reset_index(drop=True)
+        df_prabs_sorted['Rank'] = df_prabs_sorted.index + 1
+        total_athletes = len(df_prabs_sorted)
+
+        # Selected athlete's PRabs and rank
         selected_prabs = df_prabs[df_prabs['Name'] == selected_athlete]['PRabs'].iloc[0]
-        diff_to_avg_prabs_percent = ((selected_prabs - overall_prabs) / overall_prabs) * 100 if overall_prabs != 0 else 0
+        selected_rank = df_prabs_sorted[df_prabs_sorted['Name'] == selected_athlete]['Rank'].iloc[0]
+        rank_display = f"{selected_rank}/{total_athletes}"
+
+        # New KPI: Best result based on highest PR value
+        best_pr_row = df_selected.loc[df_selected['Average_Percentrank'].idxmax()]
+        best_pr_result = best_pr_row['Result']
+        best_pr_test = best_pr_row['Test']
+        best_pr_value = best_pr_row['Average_Percentrank']
 
         # Display modified KPIs at the top
         st.subheader("Key Performance Indicators")
         col1, col2 = st.columns(2)
         with col1:
-            st.metric("Overall PRabs", f"{overall_prabs:.1f}", 
-                      label_visibility="visible", 
-                      help="Average of all athletes' absolute Percentranks (PRabs = avg of test PRs per athlete)")
-        with col2:
             st.metric(f"PRabs ({selected_athlete})", f"{selected_prabs:.1f}", 
-                      delta=f"{diff_to_avg_prabs_percent:+.1f}%", 
-                      delta_color="normal" if diff_to_avg_prabs_percent >= 0 else "inverse", 
-                      help="Selected athlete's absolute Percentrank (avg of all test PRs)")
+                      delta=rank_display, 
+                      delta_color="off", 
+                      label_visibility="visible", 
+                      help="Selected athlete's absolute Percentrank and rank (e.g., 3/15 means 3rd highest out of 15)")
+        with col2:
+            st.metric(f"Best Result by PR ({selected_athlete})", f"{best_pr_result:.2f}s", 
+                      delta=f"{best_pr_test} (PR: {best_pr_value:.1f})", 
+                      delta_color="off", 
+                      label_visibility="visible", 
+                      help="Selected athlete's result with the highest Percentrank value across all tests")
 
         # New KPI: Best Result (lowest time) comparison with test filter
         st.subheader("Best Performance Comparison (Lower is Better)")
@@ -125,71 +199,52 @@ if df is not None:
                       delta_color="inverse" if diff_to_best_percent >= 0 else "normal", 
                       help=f"Selected athlete's best time for {selected_test} compared to overall best")
 
-        # Small sorted table with top 3 + selected athlete
-        st.subheader("Athlete PRabs Rankings")
-        df_prabs_sorted = df_prabs.sort_values('PRabs', ascending=False).reset_index(drop=True)
-        df_prabs_sorted['Rank'] = df_prabs_sorted.index + 1
-        
-        # Get top 3 and selected athlete
-        top_3 = df_prabs_sorted.head(3)
-        selected_row = df_prabs_sorted[df_prabs_sorted['Name'] == selected_athlete]
-        if selected_athlete not in top_3['Name'].values:
-            df_prabs_filtered = pd.concat([top_3, selected_row]).reset_index(drop=True)
-            df_prabs_filtered['Rank'] = df_prabs_filtered.index + 1  # Reassign ranks
-        else:
-            df_prabs_filtered = top_3
+        # Collapsible Athlete PRabs Rankings with all athletes
+        with st.expander("Athlete PRabs Rankings", expanded=False):
+            df_prabs_display = df_prabs_sorted[['Name', 'PRabs']]
+            def highlight_selected(row):
+                return ['background-color: #00CED1' if row['Name'] == selected_athlete else '' for _ in row]
+            styled_df = df_prabs_display.style.apply(highlight_selected, axis=1).format({'PRabs': "{:.1f}"})
+            st.dataframe(styled_df, use_container_width=True, height=300)
 
-        # Highlight selected athlete in the table
-        def highlight_selected(row):
-            return ['background-color: #00CED1' if row['Name'] == selected_athlete else '' for _ in row]
-
-        styled_df = df_prabs_filtered.style.apply(highlight_selected, axis=1).format({'PRabs': "{:.1f}"})
-        st.dataframe(styled_df, use_container_width=True, height=150)
-
-        # Calculate average results for others per test
-        others_avg = df_others.groupby('Test')['Result'].mean().reset_index()
-        selected_data = df_selected[['Test', 'Result']].drop_duplicates()
-
-        # Merge data for comparison
-        comparison_df = pd.merge(selected_data, others_avg, on='Test', how='left', suffixes=('_selected', '_others'))
-        comparison_df = comparison_df.fillna(0)
-
-        # Create comparison chart with enhanced visuals
-        st.subheader(f"Performance Comparison: {selected_athlete} vs. Others")
+        # Modified chart: Average result per test comparison
+        st.subheader(f"Average Test Performance: {selected_athlete} vs. All")
         fig = plt.figure(facecolor='none')
         ax = fig.add_axes([0.1, 0.1, 0.8, 0.8], facecolor=(0, 0, 0, 0.05))
 
-        # Define gradient colors
-        selected_cmap = LinearSegmentedColormap.from_list("selected", ["#00CED1", "#1E90FF"])
-        others_cmap = LinearSegmentedColormap.from_list("others", ["#FF6B6B", "#DC143C"])
+        # Calculate averages per test
+        all_avg = df.groupby('Test')['Result'].mean().reset_index()
+        selected_avg = df_selected.groupby('Test')['Result'].mean().reset_index()
+        comparison_df = pd.merge(all_avg, selected_avg, on='Test', how='left', suffixes=('_all', '_selected'))
+        comparison_df['selected_minus_all'] = comparison_df['Result_selected'] - comparison_df['Result_all']
 
-        bar_width = 0.35
+        # Colors: Light green (#90EE90) if selected is lower (better), red (#FF0000) if worse
+        colors = ['#90EE90' if x < 0 else '#FF0000' for x in comparison_df['selected_minus_all'].fillna(0)]
+
+        # Plot bars for selected athlete’s average results
+        bar_width = 0.5
         x = range(len(comparison_df['Test']))
-        
-        # Gradient bars for selected athlete
-        selected_bars = ax.bar([i - bar_width/2 for i in x], comparison_df['Result_selected'], bar_width, 
-                               color=[selected_cmap(i / len(x)) for i in range(len(x))], edgecolor='black', linewidth=1.2)
-        
-        # Gradient bars for others average
-        others_bars = ax.bar([i + bar_width/2 for i in x], comparison_df['Result_others'], bar_width, 
-                             color=[others_cmap(i / len(x)) for i in range(len(x))], edgecolor='black', linewidth=1.2)
+        bars = ax.bar(x, comparison_df['Result_selected'], bar_width, color=colors, edgecolor='black', linewidth=1.2, label=f'{selected_athlete} Avg')
+
+        # Plot horizontal line for all athletes’ average per test
+        for i, (test, avg_all) in enumerate(zip(comparison_df['Test'], comparison_df['Result_all'])):
+            ax.axhline(y=avg_all, xmin=i/len(x) + 0.05, xmax=(i+1)/len(x) - 0.05, color='white', linestyle='--', linewidth=1.5, label='All Avg' if i == 0 else "")
 
         # Enhance text with outlines
         ax.set_xlabel('Test', color='white', fontsize=12, weight='bold', path_effects=[pe.withStroke(linewidth=3, foreground='black')])
-        ax.set_ylabel('Result (seconds)', color='white', fontsize=12, weight='bold', path_effects=[pe.withStroke(linewidth=3, foreground='black')])
-        ax.set_title(f'{selected_athlete} vs. Others', color='white', fontsize=14, weight='bold', 
+        ax.set_ylabel('Average Result (seconds)', color='white', fontsize=12, weight='bold', path_effects=[pe.withStroke(linewidth=3, foreground='black')])
+        ax.set_title(f'{selected_athlete} vs. Average Performance', color='white', fontsize=14, weight='bold', 
                      path_effects=[pe.withStroke(linewidth=3, foreground='black')])
         ax.set_xticks(x)
         ax.set_xticklabels(comparison_df['Test'], rotation=45, ha='right', color='white', fontsize=10, 
                            path_effects=[pe.withStroke(linewidth=2, foreground='black')])
         ax.tick_params(axis='y', colors='white', labelsize=10)
-        
+
         # Add grid lines for better readability
         ax.grid(True, which='major', axis='y', linestyle='--', alpha=0.5, color='white')
 
         # Customize legend
-        ax.legend([selected_bars, others_bars], [selected_athlete, 'Others Average'], fontsize=10, labelcolor='white', 
-                  edgecolor='black', facecolor=(0, 0, 0, 0.1), framealpha=0.8)
+        ax.legend(fontsize=10, labelcolor='white', edgecolor='black', facecolor=(0, 0, 0, 0.1), framealpha=0.8)
 
         plt.tight_layout()
         st.pyplot(fig, use_container_width=True)
