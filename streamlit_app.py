@@ -147,21 +147,21 @@ if df is not None:
 
         if not df_test_sorted.empty:
             st.markdown(f"### {test} Results")
-            fig_test = plt.figure(figsize=(8, 4), facecolor='none')  # Smaller size for compactness
+            fig_test = plt.figure(figsize=(8, 4), facecolor='none')
             ax_test = fig_test.add_axes([0.1, 0.1, 0.8, 0.8], facecolor='none')
             bars_test = ax_test.barh(df_test_sorted['Name'], 
                                      df_test_sorted['Result'], 
                                      color='lightgreen')
-            ax_test.set_xlabel('Time (seconds)', color='white', fontsize=10, weight='bold')  # Smaller font
-            ax_test.set_title(f'{test} Performance', color='white', fontsize=12, weight='bold')  # Smaller font
+            ax_test.set_xlabel('Time (seconds)', color='white', fontsize=10, weight='bold')
+            ax_test.set_title(f'{test} Performance', color='white', fontsize=12, weight='bold')
             ax_test.invert_yaxis()
-            ax_test.tick_params(axis='x', colors='white', labelsize=8)  # Smaller tick labels
+            ax_test.tick_params(axis='x', colors='white', labelsize=8)
             ax_test.tick_params(axis='y', colors='white', labelsize=8)
 
             for bar in bars_test:
                 width = bar.get_width()
                 ax_test.text(width + 0.02, bar.get_y() + bar.get_height()/2, f'{width:.2f}s', 
-                             va='center', color='white', fontsize=8, weight='bold')  # Smaller font
+                             va='center', color='white', fontsize=8, weight='bold')
 
             if not df_test_sorted.empty:
                 best_time = df_test_sorted['Result'].min()
@@ -173,7 +173,7 @@ if df is not None:
                 except ValueError:
                     st.warning(f"Could not highlight best performer for {test}")
 
-            plt.tight_layout(pad=0.5)  # Tighten layout with less padding
+            plt.tight_layout(pad=0.5)
             st.pyplot(fig_test)
 
             col1, col2, col3 = st.columns(3)
@@ -212,7 +212,7 @@ if df is not None:
     # Create a chart for the selected athlete's test results (unchanged size)
     if not df_selected_athlete.empty:
         st.subheader(f"Test Results for {selected_athlete}")
-        fig_athlete = plt.figure(figsize=(10, 6), facecolor='none')  # Keep original size
+        fig_athlete = plt.figure(figsize=(10, 6), facecolor='none')
         ax_athlete = fig_athlete.add_axes([0.1, 0.1, 0.8, 0.8], facecolor='none')
         
         bars_athlete = ax_athlete.bar(df_selected_athlete['Test'], 
@@ -241,7 +241,8 @@ if df is not None:
         st.subheader(f"Athletes with Average Percentrank above {rank_threshold:.1f}")
         st.dataframe(filtered_df)
 
-    # Add download button for the data
+    # Add download button for the data (fixed)
+    csv = df.to_csv(index=False)  # Define csv here
     st.sidebar.download_button(
         label="Download Sprint Data",
         data=csv,
