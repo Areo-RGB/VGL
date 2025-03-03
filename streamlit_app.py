@@ -35,6 +35,9 @@ if df is not None:
     # Create horizontal bar chart for Average Percentrank
     st.subheader("Athlete Performance by Average Percentrank")
 
+    # Add the image above the chart
+    st.image("https://i.imgur.com/RpkL2e0.png", use_column_width=True)
+
     fig, ax = plt.figure(figsize=(10, 6)), plt.axes()
     bars = ax.barh(df_athletes_sorted['Name'], 
                    df_athletes_sorted['Average_Percentrank'], 
