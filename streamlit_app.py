@@ -8,15 +8,49 @@ st.set_page_config(page_title="Sprint Analysis", layout="wide")
 st.title("Sprint Performance Dashboard")
 st.write("Visualization of athlete performance based on Average Percentrank and individual tests")
 
-# Function to load data from CSV
-def load_data():
-    csv_path = "sprint_data.csv"
-    if os.path.exists(csv_path):
-        df = pd.read_csv(csv_path)
+# Function to load data from Google Sheets
+def load_data_from_sheets():
+    try:
+        # Using your specific Google Sheet URL
+        SHEET_ID = '1fjqPnrhIRGeYNxkRmWn4igb81SJ_gxfLCSVb3KZyju4'
+        SHEET_NAME = 'Sheet1'  # Adjust if your sheet has a different name
+
+        # Construct the URL for the CSV export
+        url = f'https://docs.google.com/spreadsheets/d/{SHEET_ID}/gviz/tq?tqx=out:csv&sheet={SHEET_NAME}'
+        df = pd.read_csv(url)
+        st.success("Successfully loaded data from Google Sheets")
         return df
-    else:
-        st.error("sprint_data.csv not found. Please upload the file.")
+
+    except Exception as e:
+        st.warning(f"Failed to load from Google Sheets: {str(e)}")
+        st.warning("Falling back to local CSV file...")
         return None
+
+# Function to load data from CSV
+def load_data_from_csv():
+    try:
+        csv_path = "sprint_data.csv"
+        if os.path.exists(csv_path):
+            df = pd.read_csv(csv_path)
+            st.success("Successfully loaded data from local CSV file")
+            return df
+        else:
+            st.error("Local CSV file (sprint_data.csv) not found.")
+            return None
+    except Exception as e:
+        st.error(f"Error loading CSV file: {str(e)}")
+        return None
+
+# Load data (try Google Sheets first, then CSV)
+def load_data():
+    # Try Google Sheets first
+    df = load_data_from_sheets()
+    
+    # If Google Sheets fails, try CSV
+    if df is None:
+        df = load_data_from_csv()
+    
+    return df
 
 # Load data
 df = load_data()
@@ -34,6 +68,9 @@ if df is not None:
 
     # Create horizontal bar chart for Average Percentrank
     st.subheader("Athlete Performance by Average Percentrank")
+
+    # Add the image above the chart
+    st.image("https://i.imgur.com/RpkL2e0.png", use_column_width=True)
 
     fig, ax = plt.figure(figsize=(10, 6)), plt.axes()
     bars = ax.barh(df_athletes_sorted['Name'], 
@@ -186,4 +223,6 @@ if df is not None:
     )
 
 else:
-    st.write("Please upload the sprint_data.csv file to view the analysis.")
+    st.write("Unable to load data from either Google Sheets or CSV. Please ensure:")
+    st.write("- Google Sheet is shared with 'Anyone with the link' can view, or")
+    st.write("- sprint_data.csv file exists in the same directory as this script")
