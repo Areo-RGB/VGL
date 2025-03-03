@@ -184,53 +184,48 @@ if df is not None:
                       help="Selected athlete's average Percentrank across all tests (higher is better)")
         with col2:
             if best_pr_value == 100:
-                st.metric(f"Best Result by PR ({selected_athlete})", f"{best_pr_result:.2f}s 🏆", 
+                st.metric(f"Best Result by PR ({selected_athlete})", f"{best_pr_result:.2f} 🏆", 
                           delta=f"{best_pr_test} (PR: {best_pr_value:.1f})", 
                           delta_color="off", 
                           label_visibility="visible", 
                           help="Selected athlete's result with the highest Percentrank (🏆 indicates top performance)")
             else:
-                st.metric(f"Best Result by PR ({selected_athlete})", f"{best_pr_result:.2f}s", 
+                st.metric(f"Best Result by PR ({selected_athlete})", f"{best_pr_result:.2f}", 
                           delta=f"{best_pr_test} (PR: {best_pr_value:.1f})", 
                           delta_color="off", 
                           label_visibility="visible", 
                           help="Selected athlete's result with the highest Percentrank")
 
-        # New KPI: Best Result (lowest time) comparison with test filter
-        st.subheader("Best Performance Comparison (Lower is Better)")
-        test_names_dropdown = df['Test'].unique().tolist()
-        selected_test = st.selectbox("Select a Test", options=test_names_dropdown, key="test_filter")
-        
-        # Filter data for the selected test
-        df_test_all = df[df['Test'] == selected_test]
-        df_test_selected = df_selected[df_selected['Test'] == selected_test]
-        
-        # Calculate best result for the selected test
-        overall_best_result = df_test_all['Result'].min() if not df_test_all.empty else float('inf')
-        selected_best_result = df_test_selected['Result'].min() if not df_test_selected.empty else float('inf')
-        diff_to_best_percent = ((selected_best_result - overall_best_result) / overall_best_result) * 100 if overall_best_result != 0 else 0
+        # Add KPIs for each test's best results (only if selected athlete has data)
+        tests = df['Test'].unique()
+        for i in range(0, len(tests), 2):
+            cols = st.columns(2)
+            for j, test in enumerate(tests[i:i+2]):
+                # Calculate best results
+                if test in higher_is_better_tests:
+                    overall_best = df[df['Test'] == test]['Result'].max() if not df[df['Test'] == test].empty else float('-inf')
+                    selected_best = df_selected[df_selected['Test'] == test]['Result'].max() if not df_selected[df_selected['Test'] == test].empty else float('-inf')
+                    diff_percent = ((selected_best - overall_best) / overall_best * 100) if overall_best != 0 and overall_best != float('-inf') else 0
+                    unit = ""
+                else:
+                    overall_best = df[df['Test'] == test]['Result'].min() if not df[df['Test'] == test].empty else float('inf')
+                    selected_best = df_selected[df_selected['Test'] == test]['Result'].min() if not df_selected[df_selected['Test'] == test].empty else float('inf')
+                    diff_percent = ((selected_best - overall_best) / overall_best * 100) if overall_best != 0 and overall_best != float('inf') else 0
+                    unit = "s"
 
-        # Display best result KPI for the selected test
-        col3, col4 = st.columns(2)
-        with col3:
-            st.metric(f"Overall Best Result ({selected_test})", 
-                      f"{overall_best_result:.2f}s" if overall_best_result != float('inf') else "N/A", 
-                      label_visibility="visible", 
-                      help=f"Lowest sprint time for {selected_test} across all athletes")
-        with col4:
-            st.metric(f"Best Result ({selected_athlete}, {selected_test})", 
-                      f"{selected_best_result:.2f}s" if selected_best_result != float('inf') else "N/A", 
-                      delta=f"{diff_to_best_percent:+.1f}%" if selected_best_result != float('inf') else "N/A", 
-                      delta_color="inverse" if diff_to_best_percent >= 0 else "normal", 
-                      help=f"Selected athlete's best time for {selected_test} compared to overall best")
-
-        # Collapsible Athlete PRabs Rankings with all athletes
-        with st.expander("Athlete PRabs Rankings", expanded=False):
-            df_prabs_display = df_prabs_sorted[['Name', 'PRabs']]
-            def highlight_selected(row):
-                return ['background-color: #00CED1' if row['Name'] == selected_athlete else '' for _ in row]
-            styled_df = df_prabs_display.style.apply(highlight_selected, axis=1).format({'PRabs': "{:.1f}"})
-            st.dataframe(styled_df, use_container_width=True, height=300)
+                # Only display if selected athlete has data for the test
+                with cols[j]:
+                    if selected_best not in [float('inf'), float('-inf')]:
+                        st.metric(f"Best {test} (All)", 
+                                  f"{overall_best:.2f}{unit}", 
+                                  label_visibility="visible", 
+                                  help=f"Best result for {test} across all athletes")
+                        st.metric(f"Best {test} ({selected_athlete})", 
+                                  f"{selected_best:.2f}{unit}", 
+                                  delta=f"{diff_percent:+.1f}%", 
+                                  delta_color="inverse" if diff_percent >= 0 and test not in higher_is_better_tests else "normal", 
+                                  label_visibility="visible", 
+                                  help=f"Selected athlete's best result for {test} vs. overall best")
 
         # Radar chart: Average result per test comparison
         st.subheader(f"Average Test Performance: {selected_athlete} vs. All")
