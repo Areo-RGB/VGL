@@ -7,6 +7,7 @@ import os
 import requests
 import re
 import base64
+import numpy as np
 
 # Set page configuration for wide layout
 st.set_page_config(page_title="Sprint Performance Dashboard", layout="wide")
@@ -104,8 +105,19 @@ if df is not None:
     df['Result'] = pd.to_numeric(df['Result'], errors='coerce')
     df = df.dropna(subset=['Result'])
 
-    # Calculate Percentrank for each result within each test
-    df['Percentrank'] = df.groupby('Test')['Result'].rank(method='min', ascending=True, pct=True) * 100  # Lower result = higher rank, in %
+    # Define test scoring directions
+    higher_is_better_tests = ['Seilspringen', 'Standweitsprung']  # Higher values are better
+    lower_is_better_tests = [test for test in df['Test'].unique() if test not in higher_is_better_tests]  # Lower values are better
+
+    # Calculate Percentrank based on test type
+    def calculate_percentrank(group):
+        test_name = group.name
+        if test_name in higher_is_better_tests:
+            return group['Result'].rank(method='min', ascending=False, pct=True) * 100  # Higher = better
+        else:
+            return group['Result'].rank(method='min', ascending=True, pct=True) * 100  # Lower = better
+
+    df['Percentrank'] = df.groupby('Test').apply(calculate_percentrank).reset_index(drop=True)
 
     # Add filter for athlete name at the top
     athlete_names = df['Name'].unique().tolist()
@@ -171,7 +183,6 @@ if df is not None:
                       label_visibility="visible", 
                       help="Selected athlete's average Percentrank across all tests (higher is better)")
         with col2:
-            # Check if PR is 100 and add golden trophy
             if best_pr_value == 100:
                 st.metric(f"Best Result by PR ({selected_athlete})", f"{best_pr_result:.2f}s 🏆", 
                           delta=f"{best_pr_test} (PR: {best_pr_value:.1f})", 
@@ -187,8 +198,8 @@ if df is not None:
 
         # New KPI: Best Result (lowest time) comparison with test filter
         st.subheader("Best Performance Comparison (Lower is Better)")
-        test_names = df['Test'].unique().tolist()
-        selected_test = st.selectbox("Select a Test", options=test_names, key="test_filter")
+        test_names_dropdown = df['Test'].unique().tolist()
+        selected_test = st.selectbox("Select a Test", options=test_names_dropdown, key="test_filter")
         
         # Filter data for the selected test
         df_test_all = df[df['Test'] == selected_test]
@@ -221,47 +232,51 @@ if df is not None:
             styled_df = df_prabs_display.style.apply(highlight_selected, axis=1).format({'PRabs': "{:.1f}"})
             st.dataframe(styled_df, use_container_width=True, height=300)
 
-        # Modified chart: Average result per test comparison
+        # Radar chart: Average result per test comparison
         st.subheader(f"Average Test Performance: {selected_athlete} vs. All")
-        fig = plt.figure(facecolor='none')
-        ax = fig.add_axes([0.1, 0.1, 0.8, 0.8], facecolor=(0, 0, 0, 0.05))
+        fig, ax = plt.subplots(figsize=(6, 6), subplot_kw=dict(polar=True), facecolor='none')
 
         # Calculate averages per test
         all_avg = df.groupby('Test')['Result'].mean().reset_index()
         selected_avg = df_selected.groupby('Test')['Result'].mean().reset_index()
-        comparison_df = pd.merge(all_avg, selected_avg, on='Test', how='left', suffixes=('_all', '_selected'))
-        comparison_df['selected_minus_all'] = comparison_df['Result_selected'] - comparison_df['Result_all']
+        comparison_df = pd.merge(all_avg, selected_avg, on='Test', how='outer', suffixes=('_all', '_selected')).fillna(0)
 
-        # Colors: Light green (#90EE90) if selected is lower (better), red (#FF0000) if worse
-        colors = ['#90EE90' if x < 0 else '#FF0000' for x in comparison_df['selected_minus_all'].fillna(0)]
+        # Prepare data for radar chart
+        categories = comparison_df['Test'].tolist()
+        num_vars = len(categories)
+        values_all = comparison_df['Result_all'].tolist()
+        values_selected = comparison_df['Result_selected'].tolist()
 
-        # Plot bars for selected athlete’s average results
-        bar_width = 0.5
-        x = range(len(comparison_df['Test']))
-        bars = ax.bar(x, comparison_df['Result_selected'], bar_width, color=colors, edgecolor='black', linewidth=1.2, label=f'{selected_athlete} Avg')
+        # Repeat the first value to close the circle
+        values_all += values_all[:1]
+        values_selected += values_selected[:1]
 
-        # Plot horizontal line for all athletes’ average per test
-        for i, (test, avg_all) in enumerate(zip(comparison_df['Test'], comparison_df['Result_all'])):
-            ax.axhline(y=avg_all, xmin=i/len(x) + 0.05, xmax=(i+1)/len(x) - 0.05, color='white', linestyle='--', linewidth=1.5, label='All Avg' if i == 0 else "")
+        # Compute angle for each category
+        angles = [n / float(num_vars) * 2 * np.pi for n in range(num_vars)]
+        angles += angles[:1]  # Close the plot
 
-        # Enhance text with outlines
-        ax.set_xlabel('Test', color='white', fontsize=12, weight='bold', path_effects=[pe.withStroke(linewidth=3, foreground='black')])
-        ax.set_ylabel('Average Result (seconds)', color='white', fontsize=12, weight='bold', path_effects=[pe.withStroke(linewidth=3, foreground='black')])
+        # Plot data
+        ax.plot(angles, values_all, linewidth=2, linestyle='solid', label='All Avg', color='#FF6B6B')
+        ax.fill(angles, values_all, '#FF6B6B', alpha=0.2)
+        ax.plot(angles, values_selected, linewidth=2, linestyle='solid', label=f'{selected_athlete} Avg', color='#00CED1')
+        ax.fill(angles, values_selected, '#00CED1', alpha=0.2)
+
+        # Customize radar chart
+        ax.set_xticks(angles[:-1])
+        ax.set_xticklabels(categories, color='white', fontsize=10, path_effects=[pe.withStroke(linewidth=2, foreground='black')])
+        ax.set_yticklabels([])  # Hide radial labels for cleaner look
         ax.set_title(f'{selected_athlete} vs. Average Performance', color='white', fontsize=14, weight='bold', 
-                     path_effects=[pe.withStroke(linewidth=3, foreground='black')])
-        ax.set_xticks(x)
-        ax.set_xticklabels(comparison_df['Test'], rotation=45, ha='right', color='white', fontsize=10, 
-                           path_effects=[pe.withStroke(linewidth=2, foreground='black')])
-        ax.tick_params(axis='y', colors='white', labelsize=10)
-
-        # Add grid lines for better readability
-        ax.grid(True, which='major', axis='y', linestyle='--', alpha=0.5, color='white')
-
+                     path_effects=[pe.withStroke(linewidth=3, foreground='black')], pad=20)
+        ax.set_facecolor((0, 0, 0, 0.05))
+        ax.spines['polar'].set_color('white')
+        ax.spines['polar'].set_alpha(0.5)
+        
         # Customize legend
-        ax.legend(fontsize=10, labelcolor='white', edgecolor='black', facecolor=(0, 0, 0, 0.1), framealpha=0.8)
+        ax.legend(loc='upper right', bbox_to_anchor=(1.1, 1.1), fontsize=10, labelcolor='white', 
+                  edgecolor='black', facecolor=(0, 0, 0, 0.1), framealpha=0.8)
 
         plt.tight_layout()
-        st.pyplot(fig, use_container_width=True)
+        st.pyplot(fig)
 
 else:
     st.write("Please upload the sprint_data.csv file to view the analysis.")
