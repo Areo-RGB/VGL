@@ -45,7 +45,6 @@ def load_image_data_from_sheets():
         SHEET_NAME = 'Sheet2'
         url = f'https://docs.google.com/spreadsheets/d/{SHEET_ID}/gviz/tq?tqx=out:csv&sheet={SHEET_NAME}'
         df_images = pd.read_csv(url)
-        st.write("Sheet2 Data Loaded:", df_images)  # Debug: Show Sheet2 content
         return df_images
     except Exception as e:
         st.warning(f"Failed to load image data from Sheet2: {str(e)}")
@@ -85,16 +84,13 @@ def load_image_from_url(url):
     try:
         # Handle Google Drive URLs
         download_url = convert_google_drive_url(url)
-        st.write(f"Attempting to load image from URL: {download_url}")  # Debug: Log URL
         headers = {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
         }
         response = requests.get(download_url, headers=headers, timeout=10)
         response.raise_for_status()
-        st.write(f"Image status code: {response.status_code}")  # Debug: Show HTTP status
         return response.content  # Return raw bytes
-    except Exception as e:
-        st.write(f"Failed to load image: {str(e)}")  # Debug: Show error
+    except Exception:
         return None
 
 # Load main data (Sheet1 or CSV)
@@ -119,7 +115,6 @@ if df is not None:
         matching_row = df_images[df_images['Name'] == selected_athlete]
         if not matching_row.empty:
             image_url = matching_row['Image'].iloc[0] if not pd.isna(matching_row['Image'].iloc[0]) else None
-            st.write(f"Found image URL for {selected_athlete}: {image_url}")  # Debug: Show URL
 
     if image_url:
         img = load_image_from_url(image_url)
