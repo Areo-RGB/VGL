@@ -14,13 +14,23 @@ st.set_page_config(page_title="Sprint Performance Dashboard", layout="wide")
 st.title("Sprint Performance Dashboard")
 st.write("Compare an athlete's performance against the rest")
 
-# Decrease sidebar width with percentage-based CSS
+# Decrease sidebar width with percentage-based CSS and reduce individual KPI size
 st.markdown(
     """
     <style>
     [data-testid="stSidebar"] {
         width: 20% !important;
         min-width: 150px;
+    }
+    /* Reduce size of individual test KPIs */
+    .small-kpi .stMetric {
+        font-size: 14px !important;
+    }
+    .small-kpi .stMetric label {
+        font-size: 14px !important;
+    }
+    .small-kpi .stMetric span {
+        font-size: 14px !important;
     }
     </style>
     """,
@@ -109,15 +119,9 @@ if df is not None:
     higher_is_better_tests = ['Seilspringen', 'Standweitsprung']  # Higher values are better
     lower_is_better_tests = [test for test in df['Test'].unique() if test not in higher_is_better_tests]  # Lower values are better
 
-    # Calculate Percentrank based on test type
-    def calculate_percentrank(group):
-        test_name = group.name
-        if test_name in higher_is_better_tests:
-            return group['Result'].rank(method='min', ascending=False, pct=True) * 100  # Higher = better
-        else:
-            return group['Result'].rank(method='min', ascending=True, pct=True) * 100  # Lower = better
-
-    df['Percentrank'] = df.groupby('Test').apply(calculate_percentrank).reset_index(drop=True)
+    # Define categories
+    speed_tests = ['10m Sprint', '20m Sprint', '50m Sprint', 'Gewandtheit']  # Speed category, lower is better
+    technique_tests = ['Dribbling', 'Ballkontrolle']  # Technique category, lower is better
 
     # Add filter for athlete name at the top
     athlete_names = df['Name'].unique().tolist()
@@ -153,79 +157,86 @@ if df is not None:
     df_others = df[df['Name'] != selected_athlete].copy()
 
     if not df_selected.empty:
-        # Calculate PRabs: Average Percentrank per athlete across all tests
-        df_prabs = df.groupby('Name')['Percentrank'].mean().reset_index()
-        df_prabs = df_prabs.rename(columns={'Percentrank': 'PRabs'})
-
-        # Sort by PRabs and assign ranks
-        df_prabs_sorted = df_prabs.sort_values('PRabs', ascending=False).reset_index(drop=True)
-        df_prabs_sorted['Rank'] = df_prabs_sorted.index + 1
-        total_athletes = len(df_prabs_sorted)
-
-        # Selected athlete's PRabs and rank
-        selected_prabs = df_prabs[df_prabs['Name'] == selected_athlete]['PRabs'].iloc[0]
-        selected_rank = df_prabs_sorted[df_prabs_sorted['Name'] == selected_athlete]['Rank'].iloc[0]
-        rank_display = f"{selected_rank}/{total_athletes}"
-
-        # Best result based on highest calculated Percentrank
-        best_pr_row = df_selected.loc[df_selected['Percentrank'].idxmax()]
-        best_pr_result = best_pr_row['Result']
-        best_pr_test = best_pr_row['Test']
-        best_pr_value = best_pr_row['Percentrank']
-
-        # Display modified KPIs at the top
+        # Display KPIs
         st.subheader("Key Performance Indicators")
+
+        # Calculate Speed Category Performance (average time, lower is better)
+        speed_df = df[df['Test'].isin(speed_tests)]
+        speed_df_selected = df_selected[df_selected['Test'].isin(speed_tests)]
+        overall_speed_avg = speed_df['Result'].mean() if not speed_df.empty else float('inf')
+        selected_speed_avg = speed_df_selected['Result'].mean() if not speed_df_selected.empty else float('inf')
+        diff_percent_speed = ((selected_speed_avg - overall_speed_avg) / overall_speed_avg * 100) if overall_speed_avg != 0 and overall_speed_avg != float('inf') else 0
+
+        # Display Speed Performance KPI
         col1, col2 = st.columns(2)
         with col1:
-            st.metric(f"PRabs ({selected_athlete})", f"{selected_prabs:.1f}", 
-                      delta=rank_display, 
-                      delta_color="off", 
+            st.metric("Speed Performance (All)", 
+                      f"{overall_speed_avg:.2f}s" if overall_speed_avg != float('inf') else "N/A", 
                       label_visibility="visible", 
-                      help="Selected athlete's average Percentrank across all tests (higher is better)")
+                      help="Average time for Speed category (10m, 20m, 50m Sprints, Gewandtheit) across all athletes")
         with col2:
-            if best_pr_value == 100:
-                st.metric(f"Best Result by PR ({selected_athlete})", f"{best_pr_result:.2f} 🏆", 
-                          delta=f"{best_pr_test} (PR: {best_pr_value:.1f})", 
-                          delta_color="off", 
-                          label_visibility="visible", 
-                          help="Selected athlete's result with the highest Percentrank (🏆 indicates top performance)")
-            else:
-                st.metric(f"Best Result by PR ({selected_athlete})", f"{best_pr_result:.2f}", 
-                          delta=f"{best_pr_test} (PR: {best_pr_value:.1f})", 
-                          delta_color="off", 
-                          label_visibility="visible", 
-                          help="Selected athlete's result with the highest Percentrank")
+            st.metric(f"Speed Performance ({selected_athlete})", 
+                      f"{selected_speed_avg:.2f}s" if selected_speed_avg != float('inf') else "N/A", 
+                      delta=f"{diff_percent_speed:+.1f}%" if selected_speed_avg != float('inf') else "N/A", 
+                      delta_color="normal" if diff_percent_speed >= 0 else "inverse",  # Green for negative (faster), red for positive (slower)
+                      label_visibility="visible", 
+                      help="Selected athlete's average time for Speed category vs. overall")
 
-        # Add KPIs for each test's best results (only if selected athlete has data)
+        # Calculate Technique Category Performance (average time, lower is better)
+        technique_df = df[df['Test'].isin(technique_tests)]
+        technique_df_selected = df_selected[df_selected['Test'].isin(technique_tests)]
+        overall_technique_avg = technique_df['Result'].mean() if not technique_df.empty else float('inf')
+        selected_technique_avg = technique_df_selected['Result'].mean() if not technique_df_selected.empty else float('inf')
+        diff_percent_technique = ((selected_technique_avg - overall_technique_avg) / overall_technique_avg * 100) if overall_technique_avg != 0 and overall_technique_avg != float('inf') else 0
+
+        # Display Technique Performance KPI
+        col3, col4 = st.columns(2)
+        with col3:
+            st.metric("Technique Performance (All)", 
+                      f"{overall_technique_avg:.2f}s" if overall_technique_avg != float('inf') else "N/A", 
+                      label_visibility="visible", 
+                      help="Average time for Technique category (Dribbling, Ballkontrolle) across all athletes")
+        with col4:
+            st.metric(f"Technique Performance ({selected_athlete})", 
+                      f"{selected_technique_avg:.2f}s" if selected_technique_avg != float('inf') else "N/A", 
+                      delta=f"{diff_percent_technique:+.1f}%" if selected_technique_avg != float('inf') else "N/A", 
+                      delta_color="inverse" if diff_percent_technique >= 0 else "normal",  # Red for positive (slower), green for negative (faster)
+                      label_visibility="visible", 
+                      help="Selected athlete's average time for Technique category vs. overall")
+
+        # Add KPIs for each test's best results in strict 2-column structure with reduced size
         tests = df['Test'].unique()
-        for i in range(0, len(tests), 2):
-            cols = st.columns(2)
-            for j, test in enumerate(tests[i:i+2]):
-                # Calculate best results
-                if test in higher_is_better_tests:
-                    overall_best = df[df['Test'] == test]['Result'].max() if not df[df['Test'] == test].empty else float('-inf')
-                    selected_best = df_selected[df_selected['Test'] == test]['Result'].max() if not df_selected[df_selected['Test'] == test].empty else float('-inf')
-                    diff_percent = ((selected_best - overall_best) / overall_best * 100) if overall_best != 0 and overall_best != float('-inf') else 0
-                    unit = ""
-                else:
-                    overall_best = df[df['Test'] == test]['Result'].min() if not df[df['Test'] == test].empty else float('inf')
-                    selected_best = df_selected[df_selected['Test'] == test]['Result'].min() if not df_selected[df_selected['Test'] == test].empty else float('inf')
-                    diff_percent = ((selected_best - overall_best) / overall_best * 100) if overall_best != 0 and overall_best != float('inf') else 0
-                    unit = "s"
+        for test in tests:
+            # Calculate best results
+            if test in higher_is_better_tests:
+                overall_best = df[df['Test'] == test]['Result'].max() if not df[df['Test'] == test].empty else float('-inf')
+                selected_best = df_selected[df_selected['Test'] == test]['Result'].max() if not df_selected[df_selected['Test'] == test].empty else float('-inf')
+                diff_percent = ((selected_best - overall_best) / overall_best * 100) if overall_best != 0 and overall_best != float('-inf') else 0
+                unit = ""
+            else:
+                overall_best = df[df['Test'] == test]['Result'].min() if not df[df['Test'] == test].empty else float('inf')
+                selected_best = df_selected[df_selected['Test'] == test]['Result'].min() if not df_selected[df_selected['Test'] == test].empty else float('inf')
+                diff_percent = ((selected_best - overall_best) / overall_best * 100) if overall_best != 0 and overall_best != float('inf') else 0
+                unit = "s"
 
-                # Only display if selected athlete has data for the test
-                with cols[j]:
-                    if selected_best not in [float('inf'), float('-inf')]:
+            # Only display if selected athlete has data for the test
+            if selected_best not in [float('inf'), float('-inf')]:
+                with st.container():
+                    st.markdown('<div class="small-kpi">', unsafe_allow_html=True)
+                    cols = st.columns(2)
+                    with cols[0]:
                         st.metric(f"Best {test} (All)", 
                                   f"{overall_best:.2f}{unit}", 
                                   label_visibility="visible", 
                                   help=f"Best result for {test} across all athletes")
+                    with cols[1]:
                         st.metric(f"Best {test} ({selected_athlete})", 
                                   f"{selected_best:.2f}{unit}", 
                                   delta=f"{diff_percent:+.1f}%", 
                                   delta_color="inverse" if diff_percent >= 0 and test not in higher_is_better_tests else "normal", 
                                   label_visibility="visible", 
                                   help=f"Selected athlete's best result for {test} vs. overall best")
+                    st.markdown('</div>', unsafe_allow_html=True)
 
         # Radar chart: Average result per test comparison
         st.subheader(f"Average Test Performance: {selected_athlete} vs. All")
